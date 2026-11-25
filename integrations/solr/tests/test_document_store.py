@@ -718,6 +718,20 @@ class TestInputValidation:
         with pytest.raises(ValueError, match="must be a non-empty list of floats"):
             SolrDocumentStore(auth=None)._embedding_retrieval([])
 
+    def test_fail_policy_rejects_an_id_repeated_within_the_batch(self):
+        documents = [Document(id="a", content="first"), Document(id="a", content="second")]
+        with pytest.raises(DuplicateDocumentError, match="'a'"):
+            SolrDocumentStore._apply_duplicate_policy(documents, DuplicatePolicy.FAIL, existing_ids=set())
+
+    def test_skip_policy_keeps_the_first_copy_of_an_id_repeated_within_the_batch(self):
+        documents = [
+            Document(id="a", content="first"),
+            Document(id="b", content="b"),
+            Document(id="a", content="second"),
+        ]
+        kept = SolrDocumentStore._apply_duplicate_policy(documents, DuplicatePolicy.SKIP, existing_ids=set())
+        assert [(document.id, document.content) for document in kept] == [("a", "first"), ("b", "b")]
+
     def test_none_policy_becomes_fail(self):
         store = SolrDocumentStore(auth=None)
         assert store._resolve_policy(DuplicatePolicy.NONE) == DuplicatePolicy.FAIL

@@ -602,13 +602,29 @@ class SolrDocumentStore:
     def _apply_duplicate_policy(
         documents: list[Document], policy: DuplicatePolicy, existing_ids: set[str]
     ) -> list[Document]:
+        # Solr overwrites by id, so an id repeated within the batch would silently keep the later copy.
+        # Treat a repeat like an id that already exists: FAIL rejects it, SKIP keeps the first copy.
+        seen_ids: set[str] = set()
         if policy == DuplicatePolicy.FAIL:
-            duplicates = sorted(document.id for document in documents if document.id in existing_ids)
+            duplicates: set[str] = set()
+            for document in documents:
+                if document.id in existing_ids or document.id in seen_ids:
+                    duplicates.add(document.id)
+                seen_ids.add(document.id)
             if duplicates:
-                msg = f"IDs '{', '.join(duplicates)}' already exist in the document store."
+                msg = (
+                    f"IDs '{', '.join(sorted(duplicates))}' already exist in the document store "
+                    "or are repeated in the batch."
+                )
                 raise DuplicateDocumentError(msg)
             return documents
-        return [document for document in documents if document.id not in existing_ids]
+        kept: list[Document] = []
+        for document in documents:
+            if document.id in existing_ids or document.id in seen_ids:
+                continue
+            seen_ids.add(document.id)
+            kept.append(document)
+        return kept
 
     def _resolve_policy(self, policy: DuplicatePolicy) -> DuplicatePolicy:
         # Solr overwrites by id by default; FAIL is the documented default for the other stores too.
